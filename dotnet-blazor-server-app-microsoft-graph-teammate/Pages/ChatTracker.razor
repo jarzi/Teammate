@@ -1,0 +1,231 @@
+﻿@page "/chattracker"
+
+@using Microsoft.Identity.Web
+@using Microsoft.Graph
+@using Teammate.Data.Chats
+@using Teammate.Data.CognitiveServices
+@using Teammate.Data.CognitiveServices.Data
+@using Teammate.Data.Members
+@using Teammate.Data.Messages
+@using Teammate.Infrastructure
+@using Teammate.Utils
+@using Teammate.ViewModels
+@using System.Text.Json
+@using Teammate.Infrastructure.Entities
+@inject ChatContext ChatContext
+@inject GraphServiceClient GraphServiceClient
+@inject MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler
+@inject ChatService ChatService
+@inject MemberService MemberService
+@inject MessageService MessageService
+@inject ConversationalLanguageUnderstandingService LanguageUnderstandingService
+@inject IJSRuntime JsRuntime
+
+@functions{
+    //ElementReference _divRef;
+    void ScrollToEnd()
+    {
+        JsRuntime.InvokeVoidAsync("scrollToEnd", "chatDiv");
+    }
+
+}
+
+@if (_tracker is null)
+{
+    <p>
+        <em>Loading...</em>
+    </p>
+}
+else
+{
+    <div class="container py-5 px-4">
+        <div class="row rounded-lg overflow-hidden shadow">
+            <div class="col-5 px-0">
+                <div class="bg-white">
+
+                    <div class="px-4 py-2 bg-light">
+                        <p class="h5 mb-0 py-1">Teams Chat</p>
+                    </div>
+
+                    <div class="messages-box">
+                        <div class="list-group rounded-0">
+                            @foreach (var chat in _tracker.TrackerChats)
+                            {
+                                <a href="" @onclick="@(() => ChangeActiveChat(chat.Id))" @onclick:preventDefault class="@ActiveChat(chat.Id == _selectedChatId) list-group-item list-group-item-action list-group-item-light rounded-0">
+                                    <div>
+                                        <div>
+                                            @{
+                                                var intents = chat.TrackerChatMessages.Where(c => c.Analysis?.Intents is not null).Select(c => c.Analysis?.Intents).SelectMany(_ => _).Count(c => c.ConfidenceScore > 0.8);
+                                            }
+                                            <div class="d-flex align-items-center justify-content-between mb-1">
+                                                <h6 class="mb-0 pt-2">
+                                                    @string.Join(", ", chat.TrackerChatMembers.Select(m => m.DisplayName).ToArray()!)
+                                                    @if (intents > 0)
+                                                    {
+                                                        <button class="ms-2 rounded-3 btn-danger">@intents</button>
+                                                    }
+                                                </h6><small class="small overflow-hidden">@chat.TrackerChatMessages.MaxBy(c => c.DateTime)?.DateTime.Date.ToShortDateString()</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-7 px-0">
+                <div class ="px-4 py-5 chat-box bg-white reverse">
+                    @{
+                        var trackerChatMessages = _tracker.TrackerChats.FirstOrDefault(t => t.Id == _selectedChatId)?.TrackerChatMessages;
+                    }
+                    @if (trackerChatMessages is not null)
+                    {
+                        foreach (var message in trackerChatMessages.SkipLast(1))
+                        {
+                            @if (message.AmIOwner)
+                            {
+                                <div class="w-50 ms-auto mb-3">
+                                    <div>
+                                        <div class="bg-primary rounded py-2 px-3 mb-2">
+                                            @((MarkupString) message.Content)
+                                        </div>
+                                        <p class="small text-muted">@message.DateTime.Date.ToShortDateString()</p>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="w-50 mb-3">
+                                    <div class="m-1">
+                                        @if (message.Analysis?.TopIntent is not null && message.Analysis.Score > 0.8)
+                                        {
+                                            foreach (var conversationEntity in message.Analysis?.ConversationEntities ?? Array.Empty<ConversationEntity>().ToList())
+                                            {
+                                                <button type="button" class="btn btn-sm btn-danger ms-2">@conversationEntity.Category @Math.Ceiling((double) (conversationEntity.ConfidenceScore * 100))%</button>
+                                            }
+                                        }
+                                        <div class="bg-light rounded py-2 px-3 mb-2">
+                                            @((MarkupString) message.Content)
+                                        </div>
+                                        <p class="small text-muted">@message.DateTime.Date.ToShortDateString()</p>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+
+    ChatContext chatContext;
+    Tracker? _tracker;
+    string? _selectedChatId;
+    Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var me = await GraphServiceClient.Me.Request().GetAsync();
+            _tracker = await GeTracker(me);
+
+            _timer = new Timer((_) =>
+            {
+                InvokeAsync(async ()  =>
+                {
+                    _tracker = await GeTracker(me);
+                    StateHasChanged();
+                });
+            }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+        }
+        catch (Exception ex)
+        {
+            ConsentHandler.HandleException(ex);
+        }
+
+        ScrollToEnd();
+    }
+
+    public async Task<Tracker> GeTracker(User? me)
+    {
+        var chats = await ChatService.GetChatsAsync(GraphServiceClient);
+        var tracker = new Tracker(new List<TrackerChat>());
+
+        foreach (var chat in chats)
+        {
+            var trackerChat = new TrackerChat(chat.Id, chat.Topic ?? string.Empty)
+            {
+                TrackerChatMembers = new List<TrackerChatMember>(),
+                TrackerChatMessages = new List<TrackerChatMessage>()
+            };
+
+            var members = await MemberService.GetChatMembersAsync(GraphServiceClient, chat.Id);
+
+            if (members.Count == 0) continue;
+
+            foreach (var member in members)
+            {
+                trackerChat.TrackerChatMembers.Add(new TrackerChatMember
+                {
+                    Id = member.Id,
+                    DisplayName = member.DisplayName
+                });
+            }
+
+            foreach (var message in await MessageService.GetChatMessagesAsync(GraphServiceClient, chat.Id))
+            {
+                trackerChat.TrackerChatMessages.Add(new TrackerChatMessage
+                {
+                    Id = message.Id,
+                    Content = message.Body.Content,
+                    AmIOwner = message.From?.User?.Id is not null && message.From.User.Id == me.Id,
+                    DateTime = message.LastModifiedDateTime?.LocalDateTime ?? DateTime.MinValue,
+                    Analysis = message.From?.User?.Id is not null && message.From.User.Id == me.Id
+                        ? null
+                        : await GetAnalysisResultAsync(message.Id, message.Body.Content)
+                });
+            }
+
+            tracker.TrackerChats.Add(trackerChat);
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedChatId))
+        {
+            _selectedChatId = tracker.TrackerChats.FirstOrDefault()?.Id;
+        }
+
+        return tracker;
+    }
+
+    public string ActiveChat(bool isActiveChat)
+    {
+        return isActiveChat ? "active" : string.Empty;
+    }
+
+    private void ChangeActiveChat(string chatId)
+    {
+        _selectedChatId = chatId;
+        ScrollToEnd();
+    }
+
+    private async Task<AnalysisResult?> GetAnalysisResultAsync(string id, string text)
+    {
+        var existingAnalysis = await ChatContext.MessageAnalysis.FindAsync(id);
+
+        if (existingAnalysis is not null)
+        {
+            return JsonSerializer.Deserialize<AnalysisResult>(existingAnalysis.AnalysisJson);
+        }
+        var analysisResult = await LanguageUnderstandingService.AnalyzeAsync(SimpleHtmlHelper.StripHtml(text), id)!;
+        await ChatContext.MessageAnalysis.AddAsync(new ChatMessageAnalysis(id, JsonSerializer.Serialize(analysisResult)));
+        await ChatContext.SaveChangesAsync(CancellationToken.None);
+
+        return analysisResult;
+    }
+
+}

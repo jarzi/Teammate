@@ -1,0 +1,38 @@
+﻿@page "/"
+@using Microsoft.Graph
+@using Microsoft.Identity.Web
+@inject GraphServiceClient GraphServiceClient
+@inject MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler
+
+<PageTitle>Index</PageTitle>
+
+<div class="p-3">
+    @if (_user == null)
+    {
+        <p>
+            <em>Loading...</em>
+        </p>
+    }
+    else
+    {
+        <h1>Hello <strong>@_user.DisplayName !</strong></h1>
+    }
+</div>
+
+<SurveyPrompt Title="How is Blazor working for you?"/>
+
+@code {
+    User? _user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _user = await GraphServiceClient.Me.Request().GetAsync();
+        }
+        catch (Exception ex)
+        {
+            ConsentHandler.HandleException(ex);
+        }
+    }
+}
