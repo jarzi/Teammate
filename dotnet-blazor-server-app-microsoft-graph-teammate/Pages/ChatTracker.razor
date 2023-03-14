@@ -19,16 +19,6 @@
 @inject MemberService MemberService
 @inject MessageService MessageService
 @inject ConversationalLanguageUnderstandingService LanguageUnderstandingService
-@inject IJSRuntime JsRuntime
-
-@functions{
-    //ElementReference _divRef;
-    void ScrollToEnd()
-    {
-        JsRuntime.InvokeVoidAsync("scrollToEnd", "chatDiv");
-    }
-
-}
 
 @if (_tracker is null)
 {
@@ -147,8 +137,6 @@ else
         {
             ConsentHandler.HandleException(ex);
         }
-
-        ScrollToEnd();
     }
 
     public async Task<Tracker> GeTracker(User? me)
@@ -210,7 +198,6 @@ else
     private void ChangeActiveChat(string chatId)
     {
         _selectedChatId = chatId;
-        ScrollToEnd();
     }
 
     private async Task<AnalysisResult?> GetAnalysisResultAsync(string id, string text)
