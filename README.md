@@ -43,3 +43,7 @@ The attached file CommonQuestion.txt contains sample questions, which was used t
 An example of a labeled question with the percentage probability of recognition:
 
 ![1](https://user-images.githubusercontent.com/9865520/224850955-ecee012d-e9fe-419a-adbb-d5ef10011076.png)
+
+
+https://user-images.githubusercontent.com/9865520/224956685-0eb21cf7-4035-4f36-82bd-5f5968a0542b.mp4
+
