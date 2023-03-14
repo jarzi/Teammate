@@ -90,6 +90,7 @@ else
                                     <div class="m-1">
                                         @if (message.Analysis?.TopIntent is not null && message.Analysis.Score > 0.8)
                                         {
+                                            <button type="button" class="btn btn-sm btn-danger">@message.Analysis?.TopIntent @Math.Ceiling((double) (message.Analysis?.Score! * 100))%</button>
                                             foreach (var conversationEntity in message.Analysis?.ConversationEntities ?? Array.Empty<ConversationEntity>().ToList())
                                             {
                                                 <button type="button" class="btn btn-sm btn-danger ms-2">@conversationEntity.Category @Math.Ceiling((double) (conversationEntity.ConfidenceScore * 100))%</button>
